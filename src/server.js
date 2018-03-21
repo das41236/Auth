@@ -26,7 +26,7 @@ server.use(middleWare.restrictedPermissions);
 
 /* ************ Routes ***************** */
 
-server.post('/log-in', (req, res) => {
+server.post('/login', (req, res) => {
   const { username, password } = req.body;
   if (!username) {
     middleWare.sendUserError('username undefined', res);
