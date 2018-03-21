@@ -9,7 +9,10 @@ const cors = require('cors');
 const STATUS_USER_ERROR = 422;
 const BCRYPT_COST = 11;
 
-const corsOptions = {};
+const corsOptions = {
+  "origin": "http://localhost:3000",
+  "credentials": true
+};
 
 const server = express();
 // to enable parsing of json bodies for post requests
@@ -21,7 +24,7 @@ server.use(
     saveUninitialized: true,
   }),
 );
-server.use(cors());
+server.use(cors(corsOptions));
 server.use(middleWare.restrictedPermissions);
 
 /* ************ Routes ***************** */
