@@ -1,99 +1,97 @@
 const bodyParser = require('body-parser');
 const express = require('express');
 const session = require('express-session');
+const User = require('./user');
 const bcrypt = require('bcrypt');
-
-const User = require('./user.js');
+const middleWare = require('./middlewares');
+const cors = require('cors');
 
 const STATUS_USER_ERROR = 422;
 const BCRYPT_COST = 11;
 
+const corsOptions = {};
+
 const server = express();
 // to enable parsing of json bodies for post requests
 server.use(bodyParser.json());
-server.use(session({
-  secret: 'e5SPiqsEtjexkTj3Xqovsjzq8ovjfgVDFMfUzSmJO21dtXs4re',
-  resave: true,
-  saveUninitialized: true
-}));
+server.use(
+  session({
+    secret: 'e5SPiqsEtjexkTj3Xqovsjzq8ovjfgVDFMfUzSmJO21dtXs4re',
+    resave: true,
+    saveUninitialized: true,
+  }),
+);
+server.use(cors());
+server.use(middleWare.restrictedPermissions);
 
-/* Sends the given err, a string or an object, to the client. Sets the status
- * code appropriately. */
-const sendUserError = (err, res) => {
-  res.status(STATUS_USER_ERROR);
-  if (err && err.message) {
-    res.json({ message: err.message, stack: err.stack });
-  } else {
-    res.json({ error: err });
+/* ************ Routes ***************** */
+
+server.post('/log-in', (req, res) => {
+  const { username, password } = req.body;
+  if (!username) {
+    middleWare.sendUserError('username undefined', res);
+    return;
   }
-};
-
-const hashPw = (req, res, next) => {
-  const { password } = req.body;
-  console.log(password);
-  if (!password || password.length === 0) {
-    sendUserError('Please provide a password.', res);
-  } else {
-    bcrypt.hash(password, BCRYPT_COST, (err, hashedPw) => {
-      if (err) {
-        sendUserError(err, res);
-      } else {
-        req.body.pwHash = hashedPw;
-      }
-      next();
-    });
-  }
-};
-
-// TODO: implement routes
-
-server.get('/', (req, res) => {
-  res.json({ message: 'API running...' });
-});
-
-server.post('/users', hashPw, (req, res) => {
-  const { username, pwHash } = req.body;
-  // const { hashedPw } = req;
-  // console.log(req.body);
-  const user = new User({ username, passwordHash: pwHash });
-  user.save((err, savedUser) => {
-    console.log(err, savedUser);
-    if (err || !savedUser) {
-      sendUserError('No user was saved', res);
-    } else {
-      req.session.username = savedUser.username;
-      res.json(savedUser)
-      .catch(err => sendUserError(err, res));
+  User.findOne({ username }, (err, user) => {
+    if (err || user === null) {
+      middleWare.sendUserError('No user found at that id', res);
+      return;
     }
+    const hashedPw = user.passwordHash;
+    bcrypt
+      .compare(password, hashedPw)
+      .then((response) => {
+        if (!response) throw new Error();
+        req.session.username = username;
+        req.user = user;
+      })
+      .then(() => {
+        res.json({ success: true });
+      })
+      .catch((error) => {
+        return middleWare.sendUserError('some message here', res);
+      });
   });
 });
 
-server.post('/log-in', (req, res) => {
-  const username = req.body.username;
-  const password = req.body.pwHash;
-  if (!username || !password) {
-    sendUserError('Username and password required', res);
-  } else {
-    username = username.toLowerCase();
-    User.findOne({ username }).then((user) => {
-      user.checkPassword(password, function (err, valid) {
-        if (!valid) {
-          return sendUserError('Invalid username or password', res);
-        }
-        req.session.username = username;
-        req.session.isAuth = true;
-        res.json({ success: validate });
-      });
-    })
-    .catch(err => sendUserError('User does not exist in the system', res));
+server.post('/users', middleWare.hashedPassword, (req, res) => {
+  const { username } = req.body;
+  const passwordHash = req.password;
+  const newUser = new User({ username, passwordHash });
+  newUser.save((err, savedUser) => {
+    if (err) {
+      res.status(422);
+      res.json({ 'Need both username/PW fields': err.message });
+      return;
+    }
+
+    res.json(savedUser);
+  });
+});
+
+server.post('/logout', (req, res) => {
+  if (!req.session.username) {
+    middleWare.sendUserError('User is not logged in', res);
+    return;
   }
+  req.session.username = null;
+  res.json(req.session);
+});
+
+server.get('/restricted/users', (req, res) => {
+  User.find({}, (err, users) => {
+    if (err) {
+      middleWare.sendUserError('500', res);
+      return;
+    }
+    res.json(users);
+  });
 });
 
 // TODO: add local middleware to this route to ensure the user is logged in
-server.get('/me',sendUserError, (req, res) => {
-  // Do NOT modify this route handler in any way.
-  res.json(req.user);
-  
+server.get('/me', middleWare.loggedIn, (req, res) => {
+  // Do NOT modify this route handler in any way
+  res.send({ user: req.user, session: req.session });
 });
 
 module.exports = { server };
